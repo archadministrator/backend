@@ -1,47 +1,27 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
- 
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from . import models, schemas
+from .database import engine, SessionLocal
+
+models.Base.metadata.create_all(bind=engine)
+
 app = FastAPI()
 
-class Todo(BaseModel):
-    id: int
-    title: str
-    completed: bool = False
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-todos = []
+@app.post("/todos/", response_model=schemas.TodoResponse)
+def create(todo: schemas.TodoCreate, db: Session = Depends(get_db)):
+    db_todo = models.Todo(**todo.dict())
+    db.add(db_todo)
+    db.commit()
+    db.refresh(db_todo)
+    return db_todo
 
-@app.get("/")
-def readRoot():
-    return {"message": "Hello sir, todo app is running good"}
-
-@app.get("/todos")
-def getTodos():
-    return todos
-
-@app.get("/todos/{todoId}")
-def getTodo(todoId: int):
-    for todo in todos:
-        if todo.id == todoId:
-            return todo
-    raise HTTPException(status_code=404, detail="Task not found")
-
-@app.post("/todos")
-def createTodo(todo: Todo):
-    todos.append(todo)
-    return todo
-
-@app.put("/todos/{todoId}")
-def updateTodo(todoId: int, updatedTodo: Todo):
-    for i, todo in enumerate(todos):
-        if todo.id == todoId:
-            todos[i] = updatedTodo
-            return updatedTodo
-    raise HTTPException(status_code=404, detail="Task not found!")
-
-@app.delete("/todos/{todoId}")
-def deleteTodo(todoId: int):
-    for i, todo in enumerate(todos):
-        if todo.id == todoId:
-            todos.pop(i)
-            return {"message": "Task deleted!"}
-    raise HTTPException(status_code=404, detail="Task not found")
+@app.get("/todos/", response_model=list[schemas.TodoResponse])
+def read(db: Session = Depends(get_db)):
+    return db.query(models.Todo).all()
